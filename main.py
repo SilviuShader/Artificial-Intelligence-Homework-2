@@ -1,4 +1,7 @@
+import math
+import sys
 import pygame
+import pygame_gui
 from pygame.locals import *
 
 WINDOW_WIDTH = 800
@@ -6,6 +9,27 @@ WINDOW_HEIGHT = 600
 DRAW_MARGIN = 40
 NODE_DRAW_DISTANCE = 70
 CIRCLE_RADIUS = 20
+
+class PyGameHelper:
+
+    def __init__(self):
+        self.last_mouse_pressed = False
+        self.mouse_released = False
+
+    def update_input(self):
+        mouse_state = pygame.mouse.get_pressed()
+
+        self.mouse_released = False
+
+        if (not mouse_state[0]) and self.last_mouse_pressed:
+            self.mouse_released = True
+
+        self.last_mouse_pressed = mouse_state[0]
+
+    def was_mouse_released(self):
+        return self.mouse_released
+
+pygame_helper = PyGameHelper()
 
 class NodeData:
     
@@ -134,6 +158,20 @@ class GameConfiguration:
         
         pygame.draw.circle(screen, (0, 0, 0), self.game_graph.nodes[self.jaguar].draw_position, CIRCLE_RADIUS)
 
+def distance(pos1, pos2):
+    pos3 = (pos2[0] - pos1[0], pos2[1] - pos1[1])
+    pos3 = (pos3[0] * pos3[0], pos3[1] * pos3[1])
+    return math.sqrt(pos3[0] + pos3[1])
+
+def replace(arr, value, new_value):
+    arr2 = arr.copy()
+
+    for i in range(len(arr2)):
+        if arr2[i] == value:
+            arr2[i] = new_value
+
+    return arr2
+
 class Player:
 
     def __init__(self):
@@ -142,53 +180,565 @@ class Player:
     def do_turn(self, game_graph, current_configuration):
         return current_configuration
 
+    def get_clicked_node(self, game_graph, position):
+
+        result = -1
+        for ix, node in enumerate(game_graph.nodes):
+            dist = distance(node.draw_position, position)
+            if dist <= CIRCLE_RADIUS:
+                result = ix
+
+        return result
+
+    def valid_neighbour(game_graph, current_configuration, current_node, other_node):
+        if game_graph.edges.get(current_node) != None:
+            if other_node in game_graph.edges[current_node]:
+                if (other_node not in current_configuration.dogs) and (other_node != current_configuration.jaguar):
+                    return True
+
+        return False
+
+    def render(self, screen, game_graph):
+        pass
+
 class DogPlayer(Player):
 
     def __init__(self):
         pass
 
+    def get_available_configurations(game_graph, current_configuration):
+
+        result = []
+        for dog in current_configuration.dogs:
+            for other_node in game_graph.edges[dog]:
+                if Player.valid_neighbour(game_graph, current_configuration, dog, other_node):
+                    result.append(GameConfiguration(game_graph, replace(current_configuration.dogs, dog, other_node), current_configuration.jaguar))
+        
+        return result
+
+    def configuration_cost(game_graph, prev_configuration, current_configuration):
+
+        count = 0
+        for other_node in game_graph.edges[current_configuration.jaguar]:
+            if other_node in current_configuration.dogs:
+                count = count + 1
+        
+        return count
+
 class JaguarPlayer(Player):
 
     def __init__(self):
-        pass
+        self.move_plan = []
 
-class HumanDogPlayer(DogPlayer):
+    def dog_between_nodes(game_graph, initial_node, target_node, dog_node):
+        if initial_node in game_graph.edges[dog_node] and target_node in game_graph.edges[dog_node]:
+            vec1 = (game_graph.nodes[dog_node].position[0] - game_graph.nodes[initial_node].position[0], game_graph.nodes[dog_node].position[1] - game_graph.nodes[initial_node].position[1])
+            vec2 = (game_graph.nodes[target_node].position[0] - game_graph.nodes[dog_node].position[0], game_graph.nodes[target_node].position[1] - game_graph.nodes[dog_node].position[1])
+            if vec1 == vec2:
+                return True
+        
+        return False
 
-    def __init__(self):
-        pass
+    def can_add_to_plan(current_plan, game_graph, current_configuration, other_node):
 
-class HumanJaguarPlayer(JaguarPlayer):
+        last_node_plan = current_configuration.jaguar
+        if len(current_plan) != 0:
+            last_node_plan = current_plan[-1]
+
+        if last_node_plan == other_node:
+            return False
+
+        if other_node in current_configuration.dogs:
+            return False
+
+        if other_node in current_plan:
+            return False
+
+        if other_node == current_configuration.jaguar:
+            return False
+
+        for dog in current_configuration.dogs:
+            if JaguarPlayer.dog_between_nodes(game_graph, last_node_plan, other_node, dog):
+                return True
+
+        return False
+
+    def configuration_after_move(move_plan, game_graph, current_configuration):
+        dogs_to_remove = []
+
+        for i in range(len(move_plan)):
+            prev_node = current_configuration.jaguar
+            if i != 0:
+                prev_node = move_plan[i - 1]
+            crt_node = move_plan[i]
+
+            for dog in current_configuration.dogs:
+                if JaguarPlayer.dog_between_nodes(game_graph, prev_node, crt_node, dog):
+                    dogs_to_remove.append(dog)
+
+        current_configuration = GameConfiguration(game_graph, [dog for dog in current_configuration.dogs if dog not in dogs_to_remove], move_plan[-1])
+
+        return current_configuration
+
+    def get_available_captures(solutions, game_graph, current_configuration, crt_solution, last_node):
+        if crt_solution != []:
+            solutions.append(crt_solution)
+        
+        for other_node in range(len(game_graph.nodes)):
+            if JaguarPlayer.can_add_to_plan(crt_solution, game_graph, current_configuration, other_node):
+                new_sol = crt_solution.copy()
+                new_sol.append(other_node)
+                JaguarPlayer.get_available_captures(solutions, game_graph, current_configuration, new_sol, other_node)
+
+    def get_available_configurations(game_graph, current_configuration):
+
+        possible_move_plans = []
+
+        for other in game_graph.edges[current_configuration.jaguar]:
+            if Player.valid_neighbour(game_graph, current_configuration, current_configuration.jaguar, other):
+                possible_move_plans.append([other])
+
+        JaguarPlayer.get_available_captures(possible_move_plans, game_graph, current_configuration, [], current_configuration.jaguar)
+
+        available_configurations = [JaguarPlayer.configuration_after_move(move_plan, game_graph, current_configuration) for move_plan in possible_move_plans]
+
+        return available_configurations
+
+    def configuration_cost(game_graph, prev_configuration, current_configuration):
+        return len(prev_configuration.dogs) - len(current_configuration.dogs)
+
+class AIHelper:
+
+    def minimax(game_graph, initial_configuration, current_configuration, is_max, is_jaguar, crt_level, max_levels, cost_function):
+
+        available_configurations = []
+        if is_jaguar:
+            available_configurations = JaguarPlayer.get_available_configurations(game_graph, current_configuration)
+        else:
+            available_configurations = DogPlayer.get_available_configurations(game_graph, current_configuration)
+        
+        if crt_level >= max_levels - 1:
+            sol = (None, -1)
+            for new_config in available_configurations:
+                crt_cost = cost_function(game_graph, initial_configuration, new_config)
+                if is_max:
+                    if crt_cost > sol[1]:
+                        sol = (new_config, crt_cost)
+                else:
+                    if sol[1] == -1 or crt_cost < sol[1]:
+                        sol = (new_config, crt_cost)
+            
+            if sol[0] != None:
+                return sol
+            return (current_configuration, 0)
+        
+        result = (None, -1)
+
+        for new_config in available_configurations:
+            returned_val = AIHelper.minimax(game_graph, initial_configuration, new_config, not is_max, not is_jaguar, crt_level + 1, max_levels, cost_function)
+            if returned_val[0] != None:
+                if is_max:
+                    if result[1] < returned_val[1]:
+                        result = (new_config, returned_val[1])
+                else:
+                    if result[1] == -1 or result[1] > returned_val[1]:
+                        result = (new_config, returned_val[1])
+
+        if result[0] != None:
+            return result
+
+        return (current_configuration, 0)
+
+    def alphabeta(game_graph, initial_configuration, current_configuration, is_max, is_jaguar, crt_level, max_levels, cost_function, alpha, beta):
+
+        available_configurations = []
+        if is_jaguar:
+            available_configurations = JaguarPlayer.get_available_configurations(game_graph, current_configuration)
+        else:
+            available_configurations = DogPlayer.get_available_configurations(game_graph, current_configuration)
+
+        if crt_level >= max_levels - 1:
+            sol = (None, -1)
+            for new_config in available_configurations:
+                crt_cost = cost_function(game_graph, initial_configuration, new_config)
+                if is_max:
+                    if crt_cost > sol[1]:
+                        sol = (new_config, crt_cost)
+                else:
+                    if sol[1] == -1 or crt_cost < sol[1]:
+                        sol = (new_config, crt_cost)
+            if sol[0] != None:
+                return sol
+            return (current_configuration, 0)
+
+        if is_max:
+            
+            sol = (None, -1)
+            for new_config in available_configurations:
+                returned_val = AIHelper.alphabeta(game_graph, initial_configuration, new_config, not is_max, not is_jaguar, crt_level + 1, max_levels, cost_function, alpha, beta)
+                
+                if returned_val[0] != None:
+                    if returned_val[1] > sol[1]:
+                        sol = (new_config, returned_val[1])
+
+                    alpha = max(alpha, returned_val[1])
+                    if alpha >= beta:
+                        break
+
+            if sol[0] != None:
+                return sol
+        else:
+            sol = (None, -1)
+            for new_config in available_configurations:
+                returned_val = AIHelper.alphabeta(game_graph, initial_configuration, new_config, not is_max, not is_jaguar, crt_level + 1, max_levels, cost_function, alpha, beta)
+
+                if returned_val[0] != None:
+                    if returned_val[1] < sol[1] or sol[1] == -1:
+                        sol = (new_config, returned_val[1])
+                    
+                    beta = min(beta, returned_val[1])
+                    if beta <= alpha:
+                        break
+
+            if sol[0] != None:
+                return sol
+
+        return (current_configuration, 0)
+        
+
+class MinimaxDogPlayer(DogPlayer):
 
     def __init__(self):
         pass
 
     def do_turn(self, game_graph, current_configuration):
+        result = AIHelper.minimax(game_graph, current_configuration, current_configuration, True, False, 0, 3, DogPlayer.configuration_cost)[0]
+        return result
+
+class AlphaBetaDogPlayer(DogPlayer):
+    def __init__(self):
+        pass
+
+    def do_turn(self, game_graph, current_configuration):
+        result = AIHelper.alphabeta(game_graph, current_configuration, current_configuration, True, False, 0, 3, DogPlayer.configuration_cost, -sys.maxsize, sys.maxsize)[0]
+        return result
+
+class HumanDogPlayer(DogPlayer):
+
+    def __init__(self):
+        self.selected_dog = -1
+
+    def do_turn(self, game_graph, current_configuration):
         
-        
+        if pygame_helper.was_mouse_released():
+            node_ix = self.get_clicked_node(game_graph, pygame.mouse.get_pos())
+            
+            if node_ix != -1:
+
+                if node_ix in current_configuration.dogs:
+                    self.selected_dog = node_ix
+                elif self.selected_dog != -1:
+                    if Player.valid_neighbour(game_graph, current_configuration, self.selected_dog, node_ix):
+                        current_configuration = GameConfiguration(game_graph, replace(current_configuration.dogs, self.selected_dog, node_ix), current_configuration.jaguar)
+                        self.selected_dog = -1
+
+        return current_configuration
+
+    def render(self, screen, game_graph):
+        if self.selected_dog != -1:
+            pygame.draw.circle(screen, (0, 255, 0), game_graph.nodes[self.selected_dog].draw_position, CIRCLE_RADIUS)
+            pygame.draw.circle(screen, (0, 0, 0), game_graph.nodes[self.selected_dog].draw_position, CIRCLE_RADIUS, 5)
+
+class MinimaxJaguarPlayer(JaguarPlayer):
+
+    def __init__(self):
+        super().__init__()
+
+    def do_turn(self, game_graph, current_configuration):
+        result = AIHelper.minimax(game_graph, current_configuration, current_configuration, True, True, 0, 3, JaguarPlayer.configuration_cost)[0]
+        return result
+
+class AlphaBetaJaguarPlayer(JaguarPlayer):
+
+    def __init__(self):
+        super().__init__()
+
+    def do_turn(self, game_graph, current_configuration):
+        result = AIHelper.alphabeta(game_graph, current_configuration, current_configuration, True, True, 0, 3, JaguarPlayer.configuration_cost, -sys.maxsize, sys.maxsize)[0]
+        return result
+
+class HumanJaguarPlayer(JaguarPlayer):
+
+    def __init__(self):
+        super().__init__()
+
+    def do_turn(self, game_graph, current_configuration):
+
+        if pygame_helper.was_mouse_released():
+            node_ix = self.get_clicked_node(game_graph, pygame.mouse.get_pos())
+            if node_ix != -1:
+                if len(self.move_plan) == 0:
+                    if JaguarPlayer.can_add_to_plan(self.move_plan, game_graph, current_configuration, node_ix):
+                        self.move_plan.append(node_ix)
+                    elif Player.valid_neighbour(game_graph, current_configuration, current_configuration.jaguar, node_ix):
+                        current_configuration = GameConfiguration(game_graph, current_configuration.dogs, node_ix)
+                else:
+                    if JaguarPlayer.can_add_to_plan(self.move_plan, game_graph, current_configuration, node_ix):
+                        self.move_plan.append(node_ix)
+                    else:
+                        current_configuration = JaguarPlayer.configuration_after_move(self.move_plan, game_graph, current_configuration)
+                        self.move_plan = []
+
+        return current_configuration
+
+    def render(self, screen, game_graph):
+        for node in self.move_plan:
+            pygame.draw.circle(screen, (0, 255, 0), game_graph.nodes[node].draw_position, CIRCLE_RADIUS)
 
 class Game:
 
-    def __init__(self):
-        self.game_graph = GameGraph()
-        self.current_configuration = GameConfiguration(self.game_graph)        
+    def create_gui(self, ui_manager):
 
-        self.dog_player = HumanDogPlayer()
-        self.jaguar_player = HumanJaguarPlayer()
+        half_margin = DRAW_MARGIN / 2
+        quarter_margin = half_margin / 2
+        half_quarter_margin = quarter_margin / 2
+        
+        dog_pos = (DRAW_MARGIN, DRAW_MARGIN)
 
-        self.current_player = self.jaguar_player
+        self.dogs_text = pygame_gui.elements.UILabel(relative_rect=pygame.Rect((dog_pos[0], dog_pos[1]), (110, 25)), text="DOGS PLAYER", manager=ui_manager)
+
+        dog_pos = (dog_pos[0], dog_pos[1] + quarter_margin + 25)
+
+        self.human_dog_button = pygame_gui.elements.UIButton(relative_rect=pygame.Rect((dog_pos[0], dog_pos[1]), (110, 25)),
+                                             text='HUMAN',
+                                             manager=ui_manager)
+
+        dog_pos = (dog_pos[0], dog_pos[1] + half_quarter_margin + 25)
+
+        self.minimax_dog_button = pygame_gui.elements.UIButton(relative_rect=pygame.Rect((dog_pos[0], dog_pos[1]), (110, 25)),
+                                             text='MINIMAX',
+                                             manager=ui_manager)
+
+        dog_pos = (dog_pos[0], dog_pos[1] + half_quarter_margin + 25)
+
+        self.alphabeta_dog_button = pygame_gui.elements.UIButton(relative_rect=pygame.Rect((dog_pos[0], dog_pos[1]), (110, 25)),
+                                        text='ALPHA-BETA',
+                                        manager=ui_manager)
+
+        dog_pos = (dog_pos[0], dog_pos[1] + quarter_margin + 25)
+
+        self.dogs_difficulty_text = pygame_gui.elements.UILabel(relative_rect=pygame.Rect((dog_pos[0], dog_pos[1]), (110, 25)), text="DIFFICULTY", manager=ui_manager)
+
+        dog_pos = (dog_pos[0], dog_pos[1] + quarter_margin + 25)
+
+        self.one_dogs_difficulty = pygame_gui.elements.UIButton(relative_rect=pygame.Rect((dog_pos[0], dog_pos[1]), (30, 25)),
+                                             text='1',
+                                             manager=ui_manager)
+
+        self.two_dogs_difficulty = pygame_gui.elements.UIButton(relative_rect=pygame.Rect((dog_pos[0] + 30 + 10, dog_pos[1]), (30, 25)),
+                                        text='2',
+                                        manager=ui_manager)
+
+        self.three_dogs_difficulty = pygame_gui.elements.UIButton(relative_rect=pygame.Rect((dog_pos[0] + 60 + 20, dog_pos[1]), (30, 25)),
+                                text='3',
+                                manager=ui_manager)
+
+        jaguar_pos = (DRAW_MARGIN + 110 + quarter_margin, DRAW_MARGIN)
+
+        self.jaguar_text = pygame_gui.elements.UILabel(relative_rect=pygame.Rect((jaguar_pos[0], jaguar_pos[1]), (110, 25)), text="JAGUAR PLAYER", manager=ui_manager)
+
+        jaguar_pos = (jaguar_pos[0], jaguar_pos[1] + quarter_margin + 25)
+
+        self.human_jaguar_button = pygame_gui.elements.UIButton(relative_rect=pygame.Rect((jaguar_pos[0], jaguar_pos[1]), (110, 25)),
+                                             text='HUMAN',
+                                             manager=ui_manager)
+
+        jaguar_pos = (jaguar_pos[0], jaguar_pos[1] + half_quarter_margin + 25)
+
+        self.minimax_jaguar_button = pygame_gui.elements.UIButton(relative_rect=pygame.Rect((jaguar_pos[0], jaguar_pos[1]), (110, 25)),
+                                        text='MINIMAX',
+                                        manager=ui_manager)
+        
+        jaguar_pos = (jaguar_pos[0], jaguar_pos[1] + half_quarter_margin + 25)
+
+        self.alphabeta_jaguar_button = pygame_gui.elements.UIButton(relative_rect=pygame.Rect((jaguar_pos[0], jaguar_pos[1]), (110, 25)),
+                                        text='ALPHA-BETA',
+                                        manager=ui_manager)
+
+        jaguar_pos = (jaguar_pos[0], jaguar_pos[1] + quarter_margin + 25)
+
+        self.jaguar_difficulty_text = pygame_gui.elements.UILabel(relative_rect=pygame.Rect((jaguar_pos[0], jaguar_pos[1]), (110, 25)), text="DIFFICULTY", manager=ui_manager)
+
+        jaguar_pos = (jaguar_pos[0], jaguar_pos[1] + quarter_margin + 25)
+
+        self.one_jaguar_difficulty = pygame_gui.elements.UIButton(relative_rect=pygame.Rect((jaguar_pos[0], jaguar_pos[1]), (30, 25)),
+                                             text='1',
+                                             manager=ui_manager)
+
+        self.two_jaguar_difficulty = pygame_gui.elements.UIButton(relative_rect=pygame.Rect((jaguar_pos[0] + 30 + 10, jaguar_pos[1]), (30, 25)),
+                                        text='2',
+                                        manager=ui_manager)
+
+        self.three_jaguar_difficulty = pygame_gui.elements.UIButton(relative_rect=pygame.Rect((jaguar_pos[0] + 60 + 20, jaguar_pos[1]), (30, 25)),
+                                text='3',
+                                manager=ui_manager)
+
+        dog_pos = (dog_pos[0], dog_pos[1] + quarter_margin + 25)
+
+        self.play_button = pygame_gui.elements.UIButton(relative_rect=pygame.Rect((dog_pos[0], dog_pos[1]), (220 + quarter_margin, 25)),
+                                text='PLAY!',
+                                manager=ui_manager)
+
+        self.human_dog_button.select()
+        self.human_jaguar_button.select()
+        self.one_dogs_difficulty.select()
+        self.one_jaguar_difficulty.select()
+
+
+    def __init__(self, ui_manager):
+
+        self.game_state = 0
+        self.dog_player_type = 0
+        self.jaguar_player_type = 0
+        self.dog_difficulty = 0
+        self.jaguar_difficulty = 0
+
+        self.create_gui(ui_manager)
+
+    def ui_update(self, event):
+        if event.type == pygame.USEREVENT:
+            if event.user_type == pygame_gui.UI_BUTTON_PRESSED:
+                if event.ui_element == self.human_dog_button:
+                    
+                    self.human_dog_button.select()
+                    self.minimax_dog_button.unselect()
+                    self.alphabeta_dog_button.unselect()
+                    self.dog_player_type = 0
+
+                elif event.ui_element == self.minimax_dog_button:
+                    
+                    self.human_dog_button.unselect()
+                    self.minimax_dog_button.select()
+                    self.alphabeta_dog_button.unselect()
+                    self.dog_player_type = 1
+
+                elif event.ui_element == self.alphabeta_dog_button:
+                    
+                    self.human_dog_button.unselect()
+                    self.minimax_dog_button.unselect()
+                    self.alphabeta_dog_button.select()
+                    self.dog_player_type = 2
+
+                elif event.ui_element == self.human_jaguar_button:
+                    
+                    self.human_jaguar_button.select()
+                    self.minimax_jaguar_button.unselect()
+                    self.alphabeta_jaguar_button.unselect()
+                    self.jaguar_player_type = 0
+
+                elif event.ui_element == self.minimax_jaguar_button:
+
+                    self.human_jaguar_button.unselect()
+                    self.minimax_jaguar_button.select()
+                    self.alphabeta_jaguar_button.unselect()
+                    self.jaguar_player_type = 1
+
+                elif event.ui_element == self.alphabeta_jaguar_button:
+
+                    self.human_jaguar_button.unselect()
+                    self.minimax_jaguar_button.unselect()
+                    self.alphabeta_jaguar_button.select()
+                    self.jaguar_player_type = 2  
+
+                elif event.ui_element == self.one_dogs_difficulty:
+
+                    self.one_dogs_difficulty.select()
+                    self.two_dogs_difficulty.unselect()
+                    self.three_dogs_difficulty.unselect()
+                    self.dog_difficulty = 0
+                
+                elif event.ui_element == self.two_dogs_difficulty:
+
+                    self.one_dogs_difficulty.unselect()
+                    self.two_dogs_difficulty.select()
+                    self.three_dogs_difficulty.unselect()
+                    self.dog_difficulty = 1
+
+                elif event.ui_element == self.three_dogs_difficulty:
+
+                    self.one_dogs_difficulty.unselect()
+                    self.two_dogs_difficulty.unselect()
+                    self.three_dogs_difficulty.select()
+                    self.dog_difficulty = 2
+
+                elif event.ui_element == self.one_jaguar_difficulty:
+
+                    self.one_jaguar_difficulty.select()
+                    self.two_jaguar_difficulty.unselect()
+                    self.three_jaguar_difficulty.unselect()
+                    self.jaguar_difficulty = 0
+
+                elif event.ui_element == self.two_jaguar_difficulty:
+
+                    self.one_jaguar_difficulty.unselect()
+                    self.two_jaguar_difficulty.select()
+                    self.three_jaguar_difficulty.unselect()
+                    self.jaguar_difficulty = 1
+
+                elif event.ui_element == self.three_jaguar_difficulty:
+
+                    self.one_jaguar_difficulty.unselect()
+                    self.two_jaguar_difficulty.unselect()
+                    self.three_jaguar_difficulty.select()
+                    self.jaguar_difficulty = 2
+
+                elif event.ui_element == self.play_button:
+
+                    self.game_graph = GameGraph()
+                    self.current_configuration = GameConfiguration(self.game_graph)        
+
+                    self.game_state = 1
+
+                    if self.dog_player_type == 0:
+                        self.dog_player = HumanDogPlayer()
+                    elif self.dog_player_type == 1:
+                        self.dog_player = MinimaxDogPlayer()
+                    elif self.dog_player_type == 2:
+                        self.dog_player = AlphaBetaDogPlayer()
+
+                    if self.jaguar_player_type == 0:
+                        self.jaguar_player = HumanJaguarPlayer()
+                    elif self.jaguar_player_type == 1:
+                        self.jaguar_player = MinimaxJaguarPlayer()
+                    elif self.jaguar_player_type == 2:
+                        self.jaguar_player = AlphaBetaJaguarPlayer()
+                        
+                    self.current_player = self.jaguar_player
 
     def update(self):
 
-        new_configuration = self.current_player.do_turn(self.game_graph, self.current_configuration)
-        if new_configuration != self.current_configuration:
-            if self.dog_player == self.current_player:
-                self.current_player = self.jaguar_player
-            else:
-                self.current_player = self.dog_player
+        if self.game_state == 0:
+            pass
+        elif self.game_state == 1:
+            pygame_helper.update_input()
+
+            new_configuration = self.current_player.do_turn(self.game_graph, self.current_configuration)
+            if new_configuration != self.current_configuration:
+                if self.dog_player == self.current_player:
+                    self.current_player = self.jaguar_player
+                else:
+                    self.current_player = self.dog_player
+                self.current_configuration = new_configuration
 
     def render(self, screen):
-        self.game_graph.render_graph(screen)
-        self.current_configuration.render(screen)
+
+        if self.game_state == 0:
+            pass
+        elif self.game_state == 1:
+
+            self.game_graph.render_graph(screen)
+            self.current_configuration.render(screen)
+            self.current_player.render(screen, self.game_graph)
 
 def main():
 
@@ -197,20 +747,34 @@ def main():
 
     running = True
 
-    game = Game()
+    ui_manager = pygame_gui.UIManager((WINDOW_WIDTH, WINDOW_HEIGHT))
+    clock = pygame.time.Clock()
+
+    game = Game(ui_manager)
 
     while running:
 
+        time_delta = clock.tick(60)/1000.0
         # Did the user click the window close button?
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+
+            if game.game_state == 0:
+                game.ui_update(event)
+                ui_manager.process_events(event)
+
+        if game.game_state == 0:
+            ui_manager.update(time_delta)
 
         game.update()
 
         screen.fill((255, 255, 255))
 
         game.render(screen)
+
+        if game.game_state == 0:
+            ui_manager.draw_ui(screen)
 
         pygame.display.flip()
 
