@@ -12,6 +12,12 @@ NODE_DRAW_DISTANCE = 70
 CIRCLE_RADIUS = 20
 
 class PyGameHelper:
+    '''
+    clasa utila pentru a detecta
+    cand se da release la mouse, deoarece
+    pygame nu are ceva pentru asta
+    built-in
+    '''
 
     def __init__(self):
         self.last_mouse_pressed = False
@@ -33,14 +39,30 @@ class PyGameHelper:
 pygame_helper = PyGameHelper()
 
 class NodeData:
-    
+    '''
+    O calasa care tine pentru un nod
+    pozitia sa in grid (x, y), dar si pozitia
+    de pe ecran. Este utila pentru desenarea board-ului 
+    '''
+
     def __init__(self, position):
         self.position = position
         self.draw_position = (DRAW_MARGIN + position[0] * NODE_DRAW_DISTANCE, 2 * DRAW_MARGIN + position[1] * NODE_DRAW_DISTANCE)
 
 class GameGraph:
+    '''
+    Clasa care se ocupa de graful tablei de joc
+    '''
 
     def __init__(self):
+
+        '''
+        Se creeaza intreaga tabla ca un graf. Avem un dictionar
+        care ne spune ce nod se afla la o pozitie din grid, o lista
+        de noduri, si o lista de adiacenta pentru a putea parcurge
+        graful cu usurinta
+        '''
+
         self.nodes = []
         self.nodes_at_pos = {}
         self.edges = {}
@@ -122,6 +144,11 @@ class GameGraph:
 
 
     def render_graph(self, screen):
+
+        '''
+        Functia care deseneaza tabla de joc, luandu-se
+        dupa relatiile dintre muchii si pozitiile nodurilor
+        '''
         
         for i in range(len(self.nodes)):
             if self.edges.get(i) != None:
@@ -133,7 +160,19 @@ class GameGraph:
 
 class GameConfiguration:
 
+    '''
+    Aceasta clasa tine informatii despre o anumita
+    stare din joc. Contine o lista cu nodurile unde se
+    afla caini, si o variabila in care se tine nodul
+    cu pozitia jaguarului.
+    '''
+
     def __init__(self, game_graph, dogs = None, jaguar = None):
+
+        '''
+        In constructor se creaza o tabla cu configuratia initiala
+        daca nu se specifica o alta configuratie
+        '''
         
         self.game_graph = game_graph
 
@@ -154,6 +193,15 @@ class GameConfiguration:
 
     def get_winner(self, game_graph):
 
+        '''
+        Functia care returneaza castigatorul dintr-o configuratie.
+        Daca jaguraul nu mai poate face miscari, atunci cainii sunt
+        castigatori. Daca sunt 9 sau mai putini caini ramasi, atunci
+        acestia nu mai au cum sa inconjoare jaguarul, deci castiga
+        jaguarul. Daca nu se intampla niciunul din aceste lucruri, inseamna
+        ca nu suntem intr-o configuratie finala.
+        '''
+
         available_jaguar_configs = JaguarPlayer.get_available_configurations(game_graph, self)
         if len(available_jaguar_configs) == 0:
             return 0
@@ -164,6 +212,10 @@ class GameConfiguration:
         return -1
 
     def debug_print(self, game_graph):
+
+        '''
+        Functia care afiseaza tabla de joc in consola (cerinta 4)
+        '''
 
         print_string = ""
 
@@ -186,6 +238,12 @@ class GameConfiguration:
 
     def render(self, screen, game_graph):
 
+        '''
+        Randeaza cercuri albe la pozitiile cainilor si un cerc negru la pozitia
+        jaguarului. Daca au castigat cainii, ii va desena cu verde, iar daca a castigat
+        jaguarul, il va desena cu verde pe el.
+        '''
+
         crt_winner = self.get_winner(game_graph)
 
         for dog in self.dogs:
@@ -205,11 +263,25 @@ class GameConfiguration:
         pygame.draw.circle(screen, jaguar_color, self.game_graph.nodes[self.jaguar].draw_position, CIRCLE_RADIUS)
 
 def distance(pos1, pos2):
+    
+    '''
+    Functie care calculeaza distanta dintre doua punce de pe ecran.
+    Este utila cand verificam daca s-a dat click pe o pozitie din board.
+    '''
+
     pos3 = (pos2[0] - pos1[0], pos2[1] - pos1[1])
     pos3 = (pos3[0] * pos3[0], pos3[1] * pos3[1])
     return math.sqrt(pos3[0] + pos3[1])
 
 def replace(arr, value, new_value):
+
+    '''
+    Functie care primeste un array, si returneaza un array nou
+    care este o copie a celui initial, doar ca la pozitiile unde
+    se afla valoarea value se va pune valoarea new_value.
+    Functia este utila cand vrem sa mutam un caine la alta pozitie.
+    '''
+
     arr2 = arr.copy()
 
     for i in range(len(arr2)):
@@ -220,13 +292,27 @@ def replace(arr, value, new_value):
 
 class Player:
 
+    '''
+    Clasa de baza pe care o mostenesc toate tipurile de jucatori, chit
+    ca sunt jucatori umani sau AI-uri.
+    '''
+
     def __init__(self):
         pass
 
     def do_turn(self, game_graph, current_configuration):
+        '''
+        Din moment ce e un jucator generic, nu va face nicio mutare
+        '''
         return current_configuration
 
     def get_clicked_node(self, game_graph, position):
+
+        '''
+        functie care primeste graful tablei de joc si pozitia la care s-a dat click pe ecran
+        si returneaza nodul pe care s-a dat click (daca s-a dat click pe un nod, altfel returneaza
+        -1)
+        '''
 
         result = -1
         for ix, node in enumerate(game_graph.nodes):
@@ -237,6 +323,12 @@ class Player:
         return result
 
     def valid_neighbour(game_graph, current_configuration, current_node, other_node):
+
+        '''
+        Functie care verifica daca o mutare este valida (valabila si pentru jaguar, si pentru caini)
+        Parte din cerinta 5.
+        '''
+
         if game_graph.edges.get(current_node) != None:
             if other_node in game_graph.edges[current_node]:
                 if (other_node not in current_configuration.dogs) and (other_node != current_configuration.jaguar):
@@ -249,10 +341,20 @@ class Player:
 
 class DogPlayer(Player):
 
+    '''
+    Clasa care mosteneste clasa Player, si care va fi mostenita
+    de clasele care controleaza caini.
+    '''
+
     def __init__(self):
         pass
 
     def get_available_configurations(game_graph, current_configuration):
+
+        '''
+        Genereaza toate mutarile posibile pentru jucatorul care controleaza cainii.
+        Parte din cerinta 5.
+        '''
 
         result = []
         for dog in current_configuration.dogs:
@@ -264,6 +366,11 @@ class DogPlayer(Player):
 
     def configuration_cost(game_graph, prev_configuration, current_configuration):
 
+        '''
+        Una din functiile de estimare. Aceasta functie este in favoarea cainilor. Ea numara
+        cati caini inconjoara jaguarul. AI-urile pentru caini se folosesc de aceasta functie de estimare.
+        '''
+
         count = 0
         for other_node in game_graph.edges[current_configuration.jaguar]:
             if other_node in current_configuration.dogs:
@@ -273,10 +380,25 @@ class DogPlayer(Player):
 
 class JaguarPlayer(Player):
 
+    '''
+    Clasa care mosteneste clasa Player, si care va fi mostenita
+    de clasele care controleaza jaguarul.
+    '''
+
     def __init__(self):
+        '''
+        avem o lista care tine nodurile selectate pentru a
+        captura mai multi caini (folosita de jucatorul uman)
+        '''
         self.move_plan = []
 
     def dog_between_nodes(game_graph, initial_node, target_node, dog_node):
+
+        '''
+        functie care verifica daca un caine care se afla pe nodul dog_node se afla
+        in linie dreapta intre nodurile initial_node si target_node
+        '''
+
         if initial_node in game_graph.edges[dog_node] and target_node in game_graph.edges[dog_node]:
             vec1 = (game_graph.nodes[dog_node].position[0] - game_graph.nodes[initial_node].position[0], game_graph.nodes[dog_node].position[1] - game_graph.nodes[initial_node].position[1])
             vec2 = (game_graph.nodes[target_node].position[0] - game_graph.nodes[dog_node].position[0], game_graph.nodes[target_node].position[1] - game_graph.nodes[dog_node].position[1])
@@ -286,6 +408,12 @@ class JaguarPlayer(Player):
         return False
 
     def can_add_to_plan(current_plan, game_graph, current_configuration, other_node):
+
+        '''
+        functie care verifica daca un nod se poate adauga la lista in care
+        se pastreaza nodurile prin care va trece jaguarul in timp ce captureaza caini.
+        Parte din cerinta 5.
+        '''
 
         last_node_plan = current_configuration.jaguar
         if len(current_plan) != 0:
@@ -310,6 +438,12 @@ class JaguarPlayer(Player):
         return False
 
     def configuration_after_move(move_plan, game_graph, current_configuration):
+
+        '''
+        Functie care primeste lista cu succesiunea de noduri prin care face captura
+        si returneaza o noua configuratie de board in urma executarii acelor capturi
+        '''
+
         dogs_to_remove = []
 
         for i in range(len(move_plan)):
@@ -327,6 +461,12 @@ class JaguarPlayer(Player):
         return current_configuration
 
     def get_available_captures(solutions, game_graph, current_configuration, crt_solution, last_node):
+
+        '''
+        functie recursiva (backtracking) returneaza toate posibilitatile de liste 
+        de noduri care ar putea face parte dintr-o captura pornita din configuratia curenta
+        '''
+
         if crt_solution != []:
             solutions.append(crt_solution)
         
@@ -337,6 +477,12 @@ class JaguarPlayer(Player):
                 JaguarPlayer.get_available_captures(solutions, game_graph, current_configuration, new_sol, other_node)
 
     def get_available_configurations(game_graph, current_configuration):
+
+        '''
+        functie care returneaza toate configuratiile de joc care pot rezulta prin mutarea jaguarului din
+        configuratia curenta.
+        Parte din cerinta 5.
+        '''
 
         possible_move_plans = []
 
@@ -355,13 +501,31 @@ class JaguarPlayer(Player):
 
 class AIHelper:
 
+    '''
+    clasa care contine algoritmii minimax si alpha-beta
+    adaptati pentru jocul nostru
+    '''
+
     def __init__(self):
+        '''
+        initializam counter-ul pentru numarul de mutari cu 0
+        '''
         self.algo_moves = 0
 
     def difficulty_to_depth(difficulty):
+        '''
+        dificultatea este un numar intre 0 si 2, deci noi va trebui sa il
+        transformam intr-o adancime pentru parcurgeri, si facem asta folosind
+        formula urmatoare
+        '''
         return 1 + (difficulty * 2)
 
     def minimax(game_graph, initial_configuration, current_configuration, is_max, is_jaguar, crt_level, max_levels, cost_function):
+
+        '''
+        algoritmul minimax. Pentru estimare se foloseste functia cost_function trimisa ca argument.
+        In functie de tipul de jucator (jaguar sau caini) se genereaza configuratii folosind functii diferite.
+        '''
 
         available_configurations = []
         if is_jaguar:
@@ -404,6 +568,11 @@ class AIHelper:
         return (current_configuration, 0)
 
     def alphabeta(game_graph, initial_configuration, current_configuration, is_max, is_jaguar, crt_level, max_levels, cost_function, alpha, beta):
+
+        '''
+        Algoritmul alpha-beta. Exact ca minimax, doar ca exista si optimizarea cu numerele
+        alpha si beta.
+        '''
 
         available_configurations = []
         if is_jaguar:
@@ -465,10 +634,22 @@ ai_helper_instance = AIHelper()
 
 class MinimaxDogPlayer(DogPlayer):
 
+    '''
+    clasa pentru jucatorul de caini care foloseste minimax
+    '''
+
     def __init__(self, difficulty):
+        '''
+        cand se creaza jucatorul trebuie sa ii stim dificultatea
+        cu care o sa joace
+        '''
         self.difficulty = difficulty
 
     def do_turn(self, game_graph, current_configuration):
+        '''
+        Face o mutare folosind algoritmul minimax pentru a determina mutarea.
+        Se afiseaza pe ecran informatiile cerute.
+        '''
         ai_helper_instance.algo_moves = 0
         result = AIHelper.minimax(game_graph, current_configuration, current_configuration, True, False, 0, AIHelper.difficulty_to_depth(self.difficulty), DogPlayer.configuration_cost)
         print("Estimation: " + str(result[1]))
@@ -476,10 +657,23 @@ class MinimaxDogPlayer(DogPlayer):
         return (result[0], ai_helper_instance.algo_moves)
 
 class AlphaBetaDogPlayer(DogPlayer):
+
+    '''
+    clasa pentru jucatorul de caini care foloseste alpha-beta
+    '''
+
     def __init__(self, difficulty):
+        '''
+        cand se creaza jucatorul trebuie sa ii stim dificultatea
+        cu care o sa joace
+        '''
         self.difficulty = difficulty
 
     def do_turn(self, game_graph, current_configuration):
+        '''
+        Face o mutare folosind algoritmul alpha-beta pentru a determina mutarea.
+        Se afiseaza pe ecran informatiile cerute.
+        '''
         ai_helper_instance.algo_moves = 0
         result = AIHelper.alphabeta(game_graph, current_configuration, current_configuration, True, False, 0, AIHelper.difficulty_to_depth(self.difficulty), DogPlayer.configuration_cost, -sys.maxsize, sys.maxsize)
         print("Estimation: " + str(result[1]))
@@ -488,10 +682,26 @@ class AlphaBetaDogPlayer(DogPlayer):
 
 class HumanDogPlayer(DogPlayer):
 
+    '''
+    clasa pentru jucatorul uman care controleaza caini.
+    '''
+
     def __init__(self):
+        '''
+        vom tine minte ultimul caine selectat, pentru ca
+        vom face mutarea folosind acel caine
+        '''
         self.selected_dog = -1
 
     def do_turn(self, game_graph, current_configuration):
+
+        '''
+        functia care face o mutare in functie de ce apasa utlizatorul (este
+        posibil sa fie apelata de mai multe ori in update pana sa se faca
+        o mutare, deoarece depinde de player, nu de calculator, nu stim cand
+        se va decide). Se asteapta selectarea unui caine, dupa care se face mutarea
+        aleasa daca este valida (se poate schimba cainele).
+        '''
         
         if pygame_helper.was_mouse_released():
             node_ix = self.get_clicked_node(game_graph, pygame.mouse.get_pos())
@@ -508,17 +718,34 @@ class HumanDogPlayer(DogPlayer):
         return (current_configuration, 0)
 
     def render(self, screen, game_graph):
+
+        '''
+        daca este un caine selectat, acesta va fi desenat cu verde.
+        '''
+
         if self.selected_dog != -1:
             pygame.draw.circle(screen, (0, 255, 0), game_graph.nodes[self.selected_dog].draw_position, CIRCLE_RADIUS)
             pygame.draw.circle(screen, (0, 0, 0), game_graph.nodes[self.selected_dog].draw_position, CIRCLE_RADIUS, 5)
 
 class MinimaxJaguarPlayer(JaguarPlayer):
 
+    '''
+    clasa pentru jucatorul jaguar care foloseste minimax
+    '''
+
     def __init__(self, difficulty):
+        '''
+        cand se creaza jucatorul trebuie sa ii stim dificultatea
+        cu care o sa joace
+        '''
         super().__init__()
         self.difficulty = difficulty
 
     def do_turn(self, game_graph, current_configuration):
+        '''
+        Face o mutare folosind algoritmul minimax pentru a determina mutarea.
+        Se afiseaza pe ecran informatiile cerute.
+        '''
         ai_helper_instance.algo_moves = 0
         result = AIHelper.minimax(game_graph, current_configuration, current_configuration, True, True, 0, AIHelper.difficulty_to_depth(self.difficulty), JaguarPlayer.configuration_cost)
         print("Estimation: " + str(result[1]))
@@ -527,11 +754,23 @@ class MinimaxJaguarPlayer(JaguarPlayer):
 
 class AlphaBetaJaguarPlayer(JaguarPlayer):
 
+    '''
+    clasa pentru jucatorul jaguar care foloseste alpha-beta
+    '''
+
     def __init__(self, difficulty):
+        '''
+        cand se creaza jucatorul trebuie sa ii stim dificultatea
+        cu care o sa joace
+        '''
         super().__init__()
         self.difficulty = difficulty
 
     def do_turn(self, game_graph, current_configuration):
+        '''
+        Face o mutare folosind algoritmul alpha-beta pentru a determina mutarea.
+        Se afiseaza pe ecran informatiile cerute.
+        '''
         ai_helper_instance.algo_moves = 0
         result = AIHelper.alphabeta(game_graph, current_configuration, current_configuration, True, True, 0, AIHelper.difficulty_to_depth(self.difficulty), JaguarPlayer.configuration_cost, -sys.maxsize, sys.maxsize)
         print("Estimation: " + str(result[1]))
@@ -540,10 +779,22 @@ class AlphaBetaJaguarPlayer(JaguarPlayer):
 
 class HumanJaguarPlayer(JaguarPlayer):
 
+    '''
+    clasa pentru jucatorul uman de jaguar
+    '''
+
     def __init__(self):
+        '''
+        ne intereseaza sa avem o lista de capturi posibile creata
+        '''
         super().__init__()
 
     def do_turn(self, game_graph, current_configuration):
+
+        '''
+        functie similara cu cea de ka jucatorul uman pentru caini, doar ca aici luam in calcul
+        si daca sunt capturi multiple pe care le face jaguarul. Se fac toate verificarile
+        '''
 
         if pygame_helper.was_mouse_released():
             node_ix = self.get_clicked_node(game_graph, pygame.mouse.get_pos())
@@ -563,12 +814,26 @@ class HumanJaguarPlayer(JaguarPlayer):
         return (current_configuration, 0)
 
     def render(self, screen, game_graph):
+
+        '''
+        deseneaza nodurile din planul de captura cu verde
+        '''
+
         for node in self.move_plan:
             pygame.draw.circle(screen, (0, 255, 0), game_graph.nodes[node].draw_position, CIRCLE_RADIUS)
 
 class Game:
 
+    '''
+    clasa care se ocupa de functionarea jocului si 
+    a meniului
+    '''
+
     def create_gui(self, ui_manager):
+
+        '''
+        functie care creaza meniul asa cum este specificat in cerinte
+        '''
 
         half_margin = DRAW_MARGIN / 2
         quarter_margin = half_margin / 2
@@ -668,6 +933,10 @@ class Game:
 
     def __init__(self, ui_manager):
 
+        '''
+        pregateste jocul si meniul
+        '''
+
         self.game_state = 0
         self.dog_player_type = 0
         self.jaguar_player_type = 0
@@ -678,6 +947,12 @@ class Game:
         self.create_gui(ui_manager)
 
     def ui_update(self, event):
+
+        '''
+        functie care verifica butoanele care au fost apsate si
+        actioneaza corespunzator
+        '''
+
         if event.type == pygame.USEREVENT:
             if event.user_type == pygame_gui.UI_BUTTON_PRESSED:
                 if event.ui_element == self.human_dog_button:
@@ -801,6 +1076,12 @@ class Game:
 
     def update(self):
 
+        '''
+        functie update care se apeleaza la fiecare frame si apeleaza functia
+        care decide ce mutare se va dace in timpul jocului. La sfarsitul jocului
+        se afiseaza in consola informatiile cerute. Daca se apasa ESC, jocul se opreste.
+        '''
+
         if self.game_state == 0:
             pass
         elif self.game_state == 1:
@@ -878,6 +1159,11 @@ class Game:
 
     def render(self, screen):
 
+        '''
+        functie care deseneaza pe ecran toate lucrurile cerute (se apeleaza
+        si functii de randare din alte clase in interiorul acestei clase)
+        '''
+
         if self.game_state == 0:
             pass
         elif self.game_state == 1:
@@ -902,6 +1188,11 @@ class Game:
                 screen.blit(text_surface, (DRAW_MARGIN, WINDOW_HEIGHT - DRAW_MARGIN * 2))
 
 def main():
+    
+    '''
+    aici incepe programul. Fereastra are titlu pus asa cum este
+    scris in cerinte.
+    '''
 
     pygame.init()
     pygame.font.init()
