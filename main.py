@@ -2,6 +2,7 @@ import math
 import sys
 import pygame
 import pygame_gui
+import time
 from pygame.locals import *
 
 WINDOW_WIDTH = 800
@@ -35,7 +36,7 @@ class NodeData:
     
     def __init__(self, position):
         self.position = position
-        self.draw_position = (DRAW_MARGIN + position[0] * NODE_DRAW_DISTANCE, DRAW_MARGIN + position[1] * NODE_DRAW_DISTANCE)
+        self.draw_position = (DRAW_MARGIN + position[0] * NODE_DRAW_DISTANCE, 2 * DRAW_MARGIN + position[1] * NODE_DRAW_DISTANCE)
 
 class GameGraph:
 
@@ -151,12 +152,57 @@ class GameConfiguration:
         else:
             self.dogs = dogs.copy()
 
-    def render(self, screen):
+    def get_winner(self, game_graph):
+
+        available_jaguar_configs = JaguarPlayer.get_available_configurations(game_graph, self)
+        if len(available_jaguar_configs) == 0:
+            return 0
+
+        if len(self.dogs) <= 9:
+            return 1
+
+        return -1
+
+    def debug_print(self, game_graph):
+
+        print_string = ""
+
+        for y in range(7):
+            for x in range(5):
+                if game_graph.nodes_at_pos.get((x, y)) != None:
+                    crt_node = game_graph.nodes_at_pos[(x, y)]
+                    if crt_node in self.dogs:
+                        print_string = print_string + "D "
+                    elif crt_node == self.jaguar:
+                        print_string = print_string + "J "
+                    else:
+                        print_string = print_string + ". "
+                else:
+                    print_string = print_string + "  "
+
+            print_string = print_string + "\n"
+
+        print(print_string)
+
+    def render(self, screen, game_graph):
+
+        crt_winner = self.get_winner(game_graph)
+
         for dog in self.dogs:
-            pygame.draw.circle(screen, (255, 255, 255), self.game_graph.nodes[dog].draw_position, CIRCLE_RADIUS)
+            
+            dog_color = (255, 255, 255)
+            if crt_winner == 0:
+                dog_color = (0, 255, 0)
+
+            pygame.draw.circle(screen, dog_color, self.game_graph.nodes[dog].draw_position, CIRCLE_RADIUS)
             pygame.draw.circle(screen, (0, 0, 0), self.game_graph.nodes[dog].draw_position, CIRCLE_RADIUS, 5)
         
-        pygame.draw.circle(screen, (0, 0, 0), self.game_graph.nodes[self.jaguar].draw_position, CIRCLE_RADIUS)
+        jaguar_color = (0, 0, 0)
+
+        if crt_winner == 1:
+            jaguar_color = (0, 255, 0)
+
+        pygame.draw.circle(screen, jaguar_color, self.game_graph.nodes[self.jaguar].draw_position, CIRCLE_RADIUS)
 
 def distance(pos1, pos2):
     pos3 = (pos2[0] - pos1[0], pos2[1] - pos1[1])
@@ -309,6 +355,12 @@ class JaguarPlayer(Player):
 
 class AIHelper:
 
+    def __init__(self):
+        self.algo_moves = 0
+
+    def difficulty_to_depth(difficulty):
+        return 1 + (difficulty * 2)
+
     def minimax(game_graph, initial_configuration, current_configuration, is_max, is_jaguar, crt_level, max_levels, cost_function):
 
         available_configurations = []
@@ -316,6 +368,8 @@ class AIHelper:
             available_configurations = JaguarPlayer.get_available_configurations(game_graph, current_configuration)
         else:
             available_configurations = DogPlayer.get_available_configurations(game_graph, current_configuration)
+
+        ai_helper_instance.algo_moves = ai_helper_instance.algo_moves + len(available_configurations) 
         
         if crt_level >= max_levels - 1:
             sol = (None, -1)
@@ -356,6 +410,8 @@ class AIHelper:
             available_configurations = JaguarPlayer.get_available_configurations(game_graph, current_configuration)
         else:
             available_configurations = DogPlayer.get_available_configurations(game_graph, current_configuration)
+
+        ai_helper_instance.algo_moves = ai_helper_instance.algo_moves + len(available_configurations)
 
         if crt_level >= max_levels - 1:
             sol = (None, -1)
@@ -404,24 +460,31 @@ class AIHelper:
                 return sol
 
         return (current_configuration, 0)
-        
+
+ai_helper_instance = AIHelper()        
 
 class MinimaxDogPlayer(DogPlayer):
 
-    def __init__(self):
-        pass
+    def __init__(self, difficulty):
+        self.difficulty = difficulty
 
     def do_turn(self, game_graph, current_configuration):
-        result = AIHelper.minimax(game_graph, current_configuration, current_configuration, True, False, 0, 3, DogPlayer.configuration_cost)[0]
-        return result
+        ai_helper_instance.algo_moves = 0
+        result = AIHelper.minimax(game_graph, current_configuration, current_configuration, True, False, 0, AIHelper.difficulty_to_depth(self.difficulty), DogPlayer.configuration_cost)
+        print("Estimation: " + str(result[1]))
+        print("Generated nodes: " + str(ai_helper_instance.algo_moves))
+        return (result[0], ai_helper_instance.algo_moves)
 
 class AlphaBetaDogPlayer(DogPlayer):
-    def __init__(self):
-        pass
+    def __init__(self, difficulty):
+        self.difficulty = difficulty
 
     def do_turn(self, game_graph, current_configuration):
-        result = AIHelper.alphabeta(game_graph, current_configuration, current_configuration, True, False, 0, 3, DogPlayer.configuration_cost, -sys.maxsize, sys.maxsize)[0]
-        return result
+        ai_helper_instance.algo_moves = 0
+        result = AIHelper.alphabeta(game_graph, current_configuration, current_configuration, True, False, 0, AIHelper.difficulty_to_depth(self.difficulty), DogPlayer.configuration_cost, -sys.maxsize, sys.maxsize)
+        print("Estimation: " + str(result[1]))
+        print("Generated nodes: " + str(ai_helper_instance.algo_moves))
+        return (result[0], ai_helper_instance.algo_moves)
 
 class HumanDogPlayer(DogPlayer):
 
@@ -442,7 +505,7 @@ class HumanDogPlayer(DogPlayer):
                         current_configuration = GameConfiguration(game_graph, replace(current_configuration.dogs, self.selected_dog, node_ix), current_configuration.jaguar)
                         self.selected_dog = -1
 
-        return current_configuration
+        return (current_configuration, 0)
 
     def render(self, screen, game_graph):
         if self.selected_dog != -1:
@@ -451,21 +514,29 @@ class HumanDogPlayer(DogPlayer):
 
 class MinimaxJaguarPlayer(JaguarPlayer):
 
-    def __init__(self):
+    def __init__(self, difficulty):
         super().__init__()
+        self.difficulty = difficulty
 
     def do_turn(self, game_graph, current_configuration):
-        result = AIHelper.minimax(game_graph, current_configuration, current_configuration, True, True, 0, 3, JaguarPlayer.configuration_cost)[0]
-        return result
+        ai_helper_instance.algo_moves = 0
+        result = AIHelper.minimax(game_graph, current_configuration, current_configuration, True, True, 0, AIHelper.difficulty_to_depth(self.difficulty), JaguarPlayer.configuration_cost)
+        print("Estimation: " + str(result[1]))
+        print("Generated nodes: " + str(ai_helper_instance.algo_moves))
+        return (result[0], ai_helper_instance.algo_moves)
 
 class AlphaBetaJaguarPlayer(JaguarPlayer):
 
-    def __init__(self):
+    def __init__(self, difficulty):
         super().__init__()
+        self.difficulty = difficulty
 
     def do_turn(self, game_graph, current_configuration):
-        result = AIHelper.alphabeta(game_graph, current_configuration, current_configuration, True, True, 0, 3, JaguarPlayer.configuration_cost, -sys.maxsize, sys.maxsize)[0]
-        return result
+        ai_helper_instance.algo_moves = 0
+        result = AIHelper.alphabeta(game_graph, current_configuration, current_configuration, True, True, 0, AIHelper.difficulty_to_depth(self.difficulty), JaguarPlayer.configuration_cost, -sys.maxsize, sys.maxsize)
+        print("Estimation: " + str(result[1]))
+        print("Generated nodes: " + str(ai_helper_instance.algo_moves))
+        return (result[0], ai_helper_instance.algo_moves)
 
 class HumanJaguarPlayer(JaguarPlayer):
 
@@ -489,7 +560,7 @@ class HumanJaguarPlayer(JaguarPlayer):
                         current_configuration = JaguarPlayer.configuration_after_move(self.move_plan, game_graph, current_configuration)
                         self.move_plan = []
 
-        return current_configuration
+        return (current_configuration, 0)
 
     def render(self, screen, game_graph):
         for node in self.move_plan:
@@ -602,6 +673,7 @@ class Game:
         self.jaguar_player_type = 0
         self.dog_difficulty = 0
         self.jaguar_difficulty = 0
+        self.myfont = pygame.font.SysFont('Comic Sans MS', 30)
 
         self.create_gui(ui_manager)
 
@@ -695,40 +767,114 @@ class Game:
                 elif event.ui_element == self.play_button:
 
                     self.game_graph = GameGraph()
-                    self.current_configuration = GameConfiguration(self.game_graph)        
+                    self.current_configuration = GameConfiguration(self.game_graph)     
+                    self.current_configuration.debug_print(self.game_graph)   
 
                     self.game_state = 1
 
                     if self.dog_player_type == 0:
                         self.dog_player = HumanDogPlayer()
                     elif self.dog_player_type == 1:
-                        self.dog_player = MinimaxDogPlayer()
+                        self.dog_player = MinimaxDogPlayer(self.dog_difficulty)
                     elif self.dog_player_type == 2:
-                        self.dog_player = AlphaBetaDogPlayer()
+                        self.dog_player = AlphaBetaDogPlayer(self.dog_difficulty)
 
                     if self.jaguar_player_type == 0:
                         self.jaguar_player = HumanJaguarPlayer()
                     elif self.jaguar_player_type == 1:
-                        self.jaguar_player = MinimaxJaguarPlayer()
+                        self.jaguar_player = MinimaxJaguarPlayer(self.jaguar_difficulty)
                     elif self.jaguar_player_type == 2:
-                        self.jaguar_player = AlphaBetaJaguarPlayer()
-                        
+                        self.jaguar_player = AlphaBetaJaguarPlayer(self.jaguar_difficulty)
+
                     self.current_player = self.jaguar_player
+                    
+                    self.dog_think_times = []
+                    self.jaguar_think_times = []
+                    self.dog_generated_nodes = []
+                    self.jaguar_generated_nodes = []
+
+                    self.last_think_time = time.time()
+                    self.start_game_time = time.time()
+                    self.shown_times = False
+                    self.game_running = True
+
 
     def update(self):
 
         if self.game_state == 0:
             pass
         elif self.game_state == 1:
+
+            current_winner = self.current_configuration.get_winner(self.game_graph)
             pygame_helper.update_input()
 
-            new_configuration = self.current_player.do_turn(self.game_graph, self.current_configuration)
-            if new_configuration != self.current_configuration:
-                if self.dog_player == self.current_player:
-                    self.current_player = self.jaguar_player
-                else:
-                    self.current_player = self.dog_player
-                self.current_configuration = new_configuration
+            keys=pygame.key.get_pressed()
+
+            if keys[K_ESCAPE]:
+                self.game_running = False
+
+            if current_winner == -1 and self.game_running:
+
+                new_configuration, generated_nodes = self.current_player.do_turn(self.game_graph, self.current_configuration)
+                if new_configuration != self.current_configuration:
+                    
+                    current_time = time.time()
+                    time_diff = current_time - self.last_think_time
+                    self.last_think_time = current_time
+
+                    new_configuration.debug_print(self.game_graph)
+
+                    print("Thinking time: " + str(time_diff))
+
+                    if self.dog_player == self.current_player:
+                        self.dog_think_times.append(time_diff)
+                        self.dog_generated_nodes.append(generated_nodes)
+                        self.current_player = self.jaguar_player
+                    else:
+                        self.jaguar_think_times.append(time_diff)
+                        self.jaguar_generated_nodes.append(generated_nodes)
+                        self.current_player = self.dog_player
+                    self.current_configuration = new_configuration
+            else:
+                if not self.shown_times:
+
+                    if len(self.jaguar_think_times) > 0 and len(self.dog_think_times) > 0:
+                        print("Dogs thinking times: ")
+                        print("Minimum: " + str(min(self.dog_think_times)))
+                        print("Maximum: " + str(max(self.dog_think_times)))
+                        print("Average: " + str(sum(self.dog_think_times) / len(self.dog_think_times)))
+                        sorted(self.dog_think_times)
+                        print("Median: " + str(self.dog_think_times[int(len(self.dog_think_times) / 2)]))
+                        print("--------------------------------------------------------------")
+                        print("Jaguar thinking times: ")
+                        print("Minimum: " + str(min(self.jaguar_think_times)))
+                        print("Maximum: " + str(max(self.jaguar_think_times)))
+                        print("Average: " + str(sum(self.jaguar_think_times) / len(self.jaguar_think_times)))
+                        sorted(self.jaguar_think_times)
+                        print("Median: " + str(self.jaguar_think_times[int(len(self.jaguar_think_times) / 2)]))
+                        print("--------------------------------------------------------------")
+                        print("Dogs generated nodes: ")
+                        print("Minimum: " + str(min(self.dog_generated_nodes)))
+                        print("Maximum: " + str(max(self.dog_generated_nodes)))
+                        print("Average: " + str(sum(self.dog_generated_nodes) / len(self.dog_generated_nodes)))
+                        sorted(self.dog_generated_nodes)
+                        print("Median: " + str(self.dog_generated_nodes[int(len(self.dog_generated_nodes) / 2)]))
+                        print("--------------------------------------------------------------")
+                        print("Jaguar generated nodes: ")
+                        print("Minimum: " + str(min(self.jaguar_generated_nodes)))
+                        print("Maximum: " + str(max(self.jaguar_generated_nodes)))
+                        print("Average: " + str(sum(self.jaguar_generated_nodes) / len(self.jaguar_generated_nodes)))
+                        sorted(self.jaguar_generated_nodes)
+                        print("Median: " + str(self.jaguar_generated_nodes[int(len(self.jaguar_generated_nodes) / 2)]))
+                        print("--------------------------------------------------------------")
+                        print("Game time: " + str(time.time() - self.start_game_time))
+                        print("Dogs moves count: " + str(len(self.dog_think_times)))
+                        print("Jaguar moves count: " + str(len(self.jaguar_think_times)))
+                        
+                        self.shown_times = True
+
+                if pygame_helper.was_mouse_released() or (not self.game_running):
+                    self.game_state = 0
 
     def render(self, screen):
 
@@ -736,13 +882,31 @@ class Game:
             pass
         elif self.game_state == 1:
 
+            turn_string = "DOGS TURN"
+            if self.current_player == self.jaguar_player:
+                turn_string = "JAGUAR TURN"
+
+            text_surface = self.myfont.render(turn_string, False, (0, 0, 0))
+            screen.blit(text_surface, (DRAW_MARGIN, DRAW_MARGIN / 2))
+
             self.game_graph.render_graph(screen)
-            self.current_configuration.render(screen)
+            self.current_configuration.render(screen, self.game_graph)
             self.current_player.render(screen, self.game_graph)
+
+            current_winner = self.current_configuration.get_winner(self.game_graph)
+            if current_winner != -1:
+                winner_string = "DOGS WON!"
+                if current_winner == 1:
+                    winner_string = "JAGUAR WON!"
+                text_surface = self.myfont.render(winner_string, False, (0, 0, 0))
+                screen.blit(text_surface, (DRAW_MARGIN, WINDOW_HEIGHT - DRAW_MARGIN * 2))
 
 def main():
 
     pygame.init()
+    pygame.font.init()
+    pygame.display.set_caption('Silviu Stăncioiu Jocul Adugo (cainii si jaguarul)')
+
     screen = pygame.display.set_mode([WINDOW_WIDTH, WINDOW_HEIGHT])
 
     running = True
